@@ -1,0 +1,1024 @@
+<?php
+/**
+ * Knowledge Commons Theme Functions
+ *
+ * @package HCommons
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Theme setup
+ */
+function hcommons_setup() {
+	// Add support for block styles
+	add_theme_support( 'wp-block-styles' );
+
+	// Add support for block template parts (required for FSE themes in multisite)
+	add_theme_support( 'block-template-parts' );
+
+	// Add support for editor styles
+	add_theme_support( 'editor-styles' );
+	add_editor_style( 'assets/css/theme.css' );
+
+	// Add support for responsive embeds
+	add_theme_support( 'responsive-embeds' );
+
+	// Add support for custom logo
+	add_theme_support( 'custom-logo', array(
+		'height'      => 32,
+		'width'       => 32,
+		'flex-height' => true,
+		'flex-width'  => true,
+	) );
+
+	// Register navigation menus
+	register_nav_menus( array(
+		'primary'         => __( 'Primary Navigation', 'hcommons' ),
+		'footer-resources' => __( 'Footer Resources', 'hcommons' ),
+		'footer-community' => __( 'Footer Community', 'hcommons' ),
+		'footer-about'     => __( 'Footer About', 'hcommons' ),
+	) );
+}
+add_action( 'after_setup_theme', 'hcommons_setup' );
+
+/**
+ * Enqueue theme styles and scripts
+ */
+function hcommons_enqueue_assets() {
+	// Font Awesome 4.7 (matches BuddyPress template class names)
+	wp_enqueue_style(
+		'font-awesome',
+		'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css',
+		array(),
+		'4.7.0'
+	);
+
+	// Main theme styles
+	wp_enqueue_style(
+		'hcommons-theme',
+		get_template_directory_uri() . '/assets/css/theme.css',
+		array( 'font-awesome' ),
+		wp_get_theme()->get( 'Version' )
+	);
+
+	// Inject logo URL as CSS variable
+	$logo_url = get_template_directory_uri() . '/assets/images/logo-icon.png';
+	wp_add_inline_style( 'hcommons-theme', ':root { --hcommons-logo-url: url("' . esc_url( $logo_url ) . '"); }' );
+
+	// Google Fonts
+	wp_enqueue_style(
+		'hcommons-fonts',
+		'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&display=swap',
+		array(),
+		null
+	);
+
+	// Theme scripts
+	wp_enqueue_script(
+		'hcommons-theme',
+		get_template_directory_uri() . '/assets/js/theme.js',
+		array(),
+		wp_get_theme()->get( 'Version' ),
+		true
+	);
+
+	// BuddyPress styles (load if BuddyPress is active)
+	if ( function_exists( 'buddypress' ) || class_exists( 'BuddyPress' ) ) {
+		wp_enqueue_style(
+			'hcommons-buddypress',
+			get_template_directory_uri() . '/assets/css/buddypress.css',
+			array( 'hcommons-theme' ),
+			wp_get_theme()->get( 'Version' )
+		);
+	}
+}
+add_action( 'wp_enqueue_scripts', 'hcommons_enqueue_assets' );
+
+/**
+ * Enqueue editor assets
+ */
+function hcommons_enqueue_editor_assets() {
+	wp_enqueue_style(
+		'hcommons-editor',
+		get_template_directory_uri() . '/assets/css/theme.css',
+		array(),
+		wp_get_theme()->get( 'Version' )
+	);
+
+	// Inject logo URL as CSS variable for editor
+	$logo_url = get_template_directory_uri() . '/assets/images/logo-icon.png';
+	wp_add_inline_style( 'hcommons-editor', ':root { --hcommons-logo-url: url("' . esc_url( $logo_url ) . '"); }' );
+}
+add_action( 'enqueue_block_editor_assets', 'hcommons_enqueue_editor_assets' );
+
+/**
+ * Register block patterns
+ */
+function hcommons_register_block_patterns() {
+	// Register pattern category
+	register_block_pattern_category( 'hcommons', array(
+		'label' => __( 'Knowledge Commons', 'hcommons' ),
+	) );
+}
+add_action( 'init', 'hcommons_register_block_patterns' );
+
+/**
+ * Hide admin bar for non-logged-in users
+ */
+function hcommons_hide_admin_bar_for_guests( $show ) {
+	if ( ! is_user_logged_in() ) {
+		return false;
+	}
+	return $show;
+}
+add_filter( 'show_admin_bar', 'hcommons_hide_admin_bar_for_guests' );
+
+/**
+ * Get theme asset URL
+ */
+function hcommons_asset_url( $path ) {
+	return get_template_directory_uri() . '/assets/' . ltrim( $path, '/' );
+}
+
+/**
+ * Get theme asset path
+ */
+function hcommons_asset_path( $path ) {
+	return get_template_directory() . '/assets/' . ltrim( $path, '/' );
+}
+
+/**
+ * Load custom template for BuddyPress Docs
+ *
+ * BuddyPress Docs uses a custom post type that conflicts with FSE archive templates.
+ * This filter ensures the correct template is loaded for BP Docs pages.
+ */
+function hcommons_bp_docs_template( $template ) {
+	// Check if BuddyPress Docs is active and we're on a docs page
+	if ( function_exists( 'bp_docs_is_docs_component' ) && bp_docs_is_docs_component() ) {
+		$custom_template = get_template_directory() . '/bp-docs-template.php';
+		if ( file_exists( $custom_template ) ) {
+			return $custom_template;
+		}
+	}
+
+	// Also check for bp_doc post type archive
+	if ( is_post_type_archive( 'bp_doc' ) ) {
+		$custom_template = get_template_directory() . '/archive-bp_doc.php';
+		if ( file_exists( $custom_template ) ) {
+			return $custom_template;
+		}
+	}
+
+	return $template;
+}
+add_filter( 'template_include', 'hcommons_bp_docs_template', 99 );
+
+/**
+ * Get the blog ID for the "about" site based on environment
+ *
+ * @return int|false Blog ID or false if not found
+ */
+function hcommons_get_about_blog_id() {
+	if ( ! is_multisite() ) {
+		return false;
+	}
+
+	// Determine which domain to look for based on environment
+	$site_url = get_site_url();
+
+	if ( strpos( $site_url, 'lndo.site' ) !== false ) {
+		// Local environment
+		$about_domain = 'about.commons-wordpress.lndo.site';
+	} elseif ( strpos( $site_url, 'hcommons-dev.org' ) !== false ) {
+		// Staging environment
+		$about_domain = 'about.hcommons-dev.org';
+	} else {
+		// Production environment
+		$about_domain = 'about.hcommons.org';
+	}
+
+	// Get blog ID by domain
+	$blog = get_blog_details( array( 'domain' => $about_domain ), false );
+
+	if ( $blog ) {
+		return $blog->blog_id;
+	}
+
+	// Fallback: try to find by path if domain lookup fails
+	$blogs = get_sites( array(
+		'search' => 'about',
+		'number' => 1,
+	) );
+
+	if ( ! empty( $blogs ) ) {
+		return $blogs[0]->blog_id;
+	}
+
+	return false;
+}
+
+/**
+ * Render blog posts from the about site
+ *
+ * This shortcode safely fetches posts from the about site using switch_to_blog()
+ * during render time only, avoiding issues with theme loading.
+ *
+ * @param array $atts Shortcode attributes
+ * @return string HTML output
+ */
+function hcommons_about_blog_posts_shortcode( $atts ) {
+	$atts = shortcode_atts( array(
+		'count' => 3,
+	), $atts );
+
+	$about_blog_id = hcommons_get_about_blog_id();
+
+	// If we can't find the about blog, fall back to current site posts
+	if ( ! $about_blog_id ) {
+		return hcommons_render_blog_posts_html( $atts['count'], false );
+	}
+
+	// Switch to the about blog to query posts
+	switch_to_blog( $about_blog_id );
+
+	$output = hcommons_render_blog_posts_html( $atts['count'], true );
+
+	// Always restore the current blog
+	restore_current_blog();
+
+	return $output;
+}
+add_shortcode( 'hcommons_about_blog_posts', 'hcommons_about_blog_posts_shortcode' );
+
+/**
+ * Get the about site base URL based on environment
+ *
+ * @return string About site URL
+ */
+function hcommons_get_about_site_url() {
+	$site_url = get_site_url();
+
+	if ( strpos( $site_url, 'lndo.site' ) !== false ) {
+		return 'https://about.commons-wordpress.lndo.site';
+	} elseif ( strpos( $site_url, 'hcommons-dev.org' ) !== false ) {
+		return 'https://about.hcommons-dev.org';
+	}
+
+	return 'https://about.hcommons.org';
+}
+
+/**
+ * Filter to inject blog posts from about site into blog section
+ *
+ * This filter runs at render time, ensuring switch_to_blog() doesn't
+ * interfere with theme loading.
+ *
+ * @param string $block_content The block content
+ * @param array  $block         The block data
+ * @return string Modified block content
+ */
+function hcommons_render_blog_section( $block_content, $block ) {
+	// Check if this is the blog posts placeholder
+	if ( isset( $block['attrs']['className'] ) && strpos( $block['attrs']['className'], 'blog-posts-placeholder' ) !== false ) {
+		$about_blog_id = hcommons_get_about_blog_id();
+
+		if ( $about_blog_id ) {
+			switch_to_blog( $about_blog_id );
+			$posts_html = hcommons_render_blog_posts_html( 3, true );
+			restore_current_blog();
+		} else {
+			$posts_html = hcommons_render_blog_posts_html( 3, false );
+		}
+
+		return $posts_html;
+	}
+
+	// Fix the View All Posts link
+	if ( isset( $block['attrs']['className'] ) && strpos( $block['attrs']['className'], 'blog-section-view-all' ) !== false ) {
+		$about_url = hcommons_get_about_site_url();
+		$block_content = preg_replace(
+			'/href="[^"]*"/',
+			'href="' . esc_url( $about_url . '/news/' ) . '"',
+			$block_content
+		);
+	}
+
+	return $block_content;
+}
+add_filter( 'render_block', 'hcommons_render_blog_section', 10, 2 );
+
+/**
+ * Render header account area shortcode
+ *
+ * Shows user avatar, name, and notifications when logged in,
+ * or login/register links when logged out.
+ *
+ * @return string HTML output
+ */
+function hcommons_header_account_shortcode() {
+	ob_start();
+
+	if ( is_user_logged_in() ) {
+		$user_id = get_current_user_id();
+		$user_link = function_exists( 'bp_core_get_user_domain' ) ? bp_core_get_user_domain( $user_id ) : get_author_posts_url( $user_id );
+		$user_name = function_exists( 'bp_core_get_user_displayname' ) ? bp_core_get_user_displayname( $user_id ) : wp_get_current_user()->display_name;
+		$avatar = function_exists( 'bp_core_fetch_avatar' )
+			? bp_core_fetch_avatar( array( 'item_id' => $user_id, 'type' => 'thumb', 'width' => 32, 'height' => 32 ) )
+			: get_avatar( $user_id, 32 );
+		?>
+		<div class="header-account">
+			<?php if ( function_exists( 'bp_is_active' ) && bp_is_active( 'notifications' ) ) : ?>
+				<?php
+				$notifications_link = trailingslashit( $user_link . 'notifications' );
+				$notification_count = function_exists( 'bp_notifications_get_unread_notification_count' )
+					? bp_notifications_get_unread_notification_count( $user_id )
+					: 0;
+				?>
+				<div class="header-notifications">
+					<a class="notification-link" href="<?php echo esc_url( $notifications_link ); ?>" title="<?php esc_attr_e( 'Notifications', 'flavor' ); ?>">
+						<i class="fa fa-bell"></i>
+						<?php if ( $notification_count > 0 ) : ?>
+							<span class="notification-count"><?php echo esc_html( $notification_count ); ?></span>
+						<?php endif; ?>
+					</a>
+					<?php
+					// Notifications dropdown
+					if ( $notification_count > 0 && function_exists( 'bp_notifications_get_notifications_for_user' ) ) :
+						$notifications = bp_notifications_get_notifications_for_user( $user_id, 'object' );
+						$notifications = array_slice( $notifications, 0, 5 ); // Limit to 5
+						if ( ! empty( $notifications ) ) :
+					?>
+						<div class="notifications-dropdown">
+							<?php foreach ( $notifications as $notification ) :
+								$notification_content = isset( $notification->content ) ? $notification->content : '';
+								$notification_href = isset( $notification->href ) ? $notification->href : $notifications_link;
+							?>
+								<a href="<?php echo esc_url( $notification_href ); ?>" class="notification-item">
+									<?php echo wp_kses_post( $notification_content ); ?>
+								</a>
+							<?php endforeach; ?>
+							<a href="<?php echo esc_url( $notifications_link ); ?>" class="notification-item view-all">
+								<?php esc_html_e( 'View all notifications', 'flavor' ); ?>
+							</a>
+						</div>
+					<?php
+						endif;
+					endif;
+					?>
+				</div>
+			<?php endif; ?>
+
+			<div class="header-account-login">
+				<a class="user-link" href="<?php echo esc_url( $user_link ); ?>">
+					<span class="user-avatar"><?php echo $avatar; ?></span>
+					<span class="user-name user-name-body"><?php echo esc_html( $user_name ); ?></span>
+				</a>
+				<div class="account-dropdown">
+					<?php if ( function_exists( 'bp_core_get_user_domain' ) ) : ?>
+						<a href="<?php echo esc_url( $user_link ); ?>"><?php esc_html_e( 'My Profile', 'flavor' ); ?></a>
+						<a href="<?php echo esc_url( trailingslashit( $user_link . 'settings' ) ); ?>"><?php esc_html_e( 'Settings', 'flavor' ); ?></a>
+					<?php endif; ?>
+					<?php if ( current_user_can( 'edit_posts' ) ) : ?>
+						<a href="<?php echo esc_url( admin_url() ); ?>"><?php esc_html_e( 'Dashboard', 'flavor' ); ?></a>
+					<?php endif; ?>
+					<a href="<?php echo esc_url( wp_logout_url( home_url() ) ); ?>" class="logout-link"><?php esc_html_e( 'Log Out', 'flavor' ); ?></a>
+				</div>
+			</div>
+		</div>
+		<?php
+	} else {
+		// Logged out: show login/register links
+		$login_url = wp_login_url();
+		$register_url = function_exists( 'bp_get_signup_page' ) ? bp_get_signup_page() : wp_registration_url();
+		?>
+		<div class="header-account logged-out">
+			<a href="<?php echo esc_url( $login_url ); ?>" class="btn-text"><?php esc_html_e( 'Log In', 'flavor' ); ?></a>
+			<a href="<?php echo esc_url( $register_url ); ?>" class="btn-primary-sm"><?php esc_html_e( 'Register', 'flavor' ); ?></a>
+		</div>
+		<?php
+	}
+
+	return ob_get_clean();
+}
+add_shortcode( 'hcommons_header_account', 'hcommons_header_account_shortcode' );
+
+/**
+ * Render mobile auth link shortcode
+ *
+ * Shows a logout link if logged in, or login link if logged out.
+ * Designed for use in the mobile navigation menu.
+ *
+ * @return string HTML output
+ */
+function hcommons_mobile_auth_link_shortcode() {
+	if ( is_user_logged_in() ) {
+		$logout_url = wp_logout_url( home_url() );
+		return '<a href="' . esc_url( $logout_url ) . '" class="mobile-auth-link logout-link">' . esc_html__( 'Log Out', 'flavor' ) . '</a>';
+	} else {
+		$login_url = wp_login_url();
+		return '<a href="' . esc_url( $login_url ) . '" class="mobile-auth-link login-link">' . esc_html__( 'Log In', 'flavor' ) . '</a>';
+	}
+}
+add_shortcode( 'hcommons_mobile_auth_link', 'hcommons_mobile_auth_link_shortcode' );
+
+/**
+ * Ensure shortcodes are processed in block template parts
+ *
+ * This filter processes shortcodes in the core/shortcode block content,
+ * which is needed for PHP templates that use block_template_part().
+ *
+ * @param string $block_content The block content.
+ * @param array  $block         The full block, including name and attributes.
+ * @return string Modified block content with shortcodes processed.
+ */
+function hcommons_process_shortcodes_in_blocks( $block_content, $block ) {
+	if ( 'core/shortcode' === $block['blockName'] ) {
+		$block_content = do_shortcode( $block_content );
+	}
+	return $block_content;
+}
+add_filter( 'render_block', 'hcommons_process_shortcodes_in_blocks', 10, 2 );
+
+/**
+ * Render blog posts HTML
+ *
+ * @param int  $count Number of posts to display
+ * @param bool $is_external Whether posts are from external blog (affects link handling)
+ * @return string HTML output
+ */
+function hcommons_render_blog_posts_html( $count, $is_external = false ) {
+	$posts = get_posts( array(
+		'post_type'      => 'post',
+		'post_status'    => 'publish',
+		'posts_per_page' => intval( $count ),
+		'orderby'        => 'date',
+		'order'          => 'DESC',
+	) );
+
+	if ( empty( $posts ) ) {
+		return '<p class="has-black-color has-text-color">No posts yet. Check back soon!</p>';
+	}
+
+	$output = '<div class="wp-block-query blog-grid"><ul class="wp-block-post-template is-layout-grid">';
+
+	foreach ( $posts as $post ) {
+		$permalink = get_permalink( $post->ID );
+		$date = get_the_date( 'F j, Y', $post->ID );
+		$title = get_the_title( $post->ID );
+		$excerpt = wp_trim_words( $post->post_excerpt ? $post->post_excerpt : $post->post_content, 20 );
+
+		$output .= '<li class="wp-block-post">';
+		$output .= '<div class="wp-block-group blog-card p-50 rounded has-white-background-color has-background">';
+
+		// Date
+		$output .= '<time datetime="' . esc_attr( get_the_date( 'c', $post->ID ) ) . '" class="wp-block-post-date blog-date text-base font-medium has-teal-light-color has-text-color">' . esc_html( $date ) . '</time>';
+
+		// Title with link
+		$output .= '<h3 class="wp-block-post-title blog-title text-lg mt-20 mb-30"><a href="' . esc_url( $permalink ) . '">' . esc_html( $title ) . '</a></h3>';
+
+		// Excerpt
+		$output .= '<div class="wp-block-post-excerpt blog-excerpt text-base leading-normal has-teal-light-color has-text-color"><p>' . esc_html( $excerpt ) . '</p>';
+		$output .= '<a href="' . esc_url( $permalink ) . '" class="wp-block-post-excerpt__more-link">Read more →</a>';
+		$output .= '</div>';
+
+		$output .= '</div>';
+		$output .= '</li>';
+	}
+
+	$output .= '</ul></div>';
+
+	return $output;
+}
+
+/**
+ * Include hidden groups in the AJAX groups query when appropriate
+ *
+ * Hooks into bp_ajax_querystring which controls the groups directory
+ * AJAX requests. When viewing "My Groups" (scope=personal), sets
+ * show_hidden=1 so the user's hidden group memberships appear.
+ * The user_id constraint BuddyPress adds for personal scope ensures
+ * only the user's own groups are returned.
+ *
+ * @param string $querystring The AJAX querystring.
+ * @param string $object      The object type (groups, members, etc.).
+ * @return string Modified querystring.
+ */
+function hcommons_groups_ajax_show_hidden( $querystring, $object ) {
+	if ( 'groups' !== $object || ! is_user_logged_in() ) {
+		return $querystring;
+	}
+
+	$args = wp_parse_args( $querystring );
+
+	if ( isset( $args['scope'] ) && 'personal' === $args['scope'] ) {
+		$args['show_hidden'] = '1';
+		$args['user_id'] = bp_loggedin_user_id();
+		return build_query( $args );
+	}
+
+	return $querystring;
+}
+add_filter( 'bp_ajax_querystring', 'hcommons_groups_ajax_show_hidden', 20, 2 );
+
+/**
+ * Modify the groups SQL to include hidden groups the user is a member of
+ *
+ * When show_hidden is false (the default for non-personal scopes), BuddyPress
+ * adds a WHERE clause excluding hidden groups. This filter relaxes that
+ * exclusion for groups the logged-in user belongs to, so hidden groups
+ * appear in search results for their own members without leaking to others.
+ *
+ * @param string $sql The paged groups SQL query.
+ * @return string Modified SQL.
+ */
+function hcommons_groups_sql_show_user_hidden( $sql ) {
+	if ( ! is_user_logged_in() ) {
+		return $sql;
+	}
+
+	global $wpdb;
+	$bp = buddypress();
+	$user_id = bp_loggedin_user_id();
+
+	// Replace the blanket hidden exclusion with one that allows the user's own hidden groups.
+	$hidden_clause = "g.status != 'hidden'";
+	$replacement = $wpdb->prepare(
+		"(g.status != 'hidden' OR g.id IN (SELECT group_id FROM {$bp->groups->table_name_members} WHERE user_id = %d AND is_confirmed = 1))",
+		$user_id
+	);
+
+	if ( strpos( $sql, $hidden_clause ) !== false ) {
+		$sql = str_replace( $hidden_clause, $replacement, $sql );
+	}
+
+	return $sql;
+}
+add_filter( 'bp_groups_get_paged_groups_sql', 'hcommons_groups_sql_show_user_hidden' );
+add_filter( 'bp_groups_get_total_groups_sql', 'hcommons_groups_sql_show_user_hidden' );
+
+/**
+ * Save group admin settings for hidden nav tabs and landing page
+ *
+ * Hooks into the group settings save action to persist the admin's choices
+ * for which navigation items to show/hide and which page to use as the
+ * default landing page.
+ *
+ * @param int $group_id The ID of the group being edited.
+ */
+function hcommons_save_group_nav_settings( $group_id ) {
+	if ( ! bp_is_group_admin_screen( 'group-settings' ) ) {
+		return;
+	}
+
+	// Get all available nav items to determine which are hidden
+	$group_nav = buddypress()->groups->nav;
+	$group_slug = bp_get_current_group_slug();
+	$all_nav_slugs = array();
+
+	if ( ! empty( $group_nav ) && method_exists( $group_nav, 'get_secondary' ) ) {
+		$nav_items = $group_nav->get_secondary( array( 'parent_slug' => $group_slug ) );
+		if ( ! empty( $nav_items ) ) {
+			foreach ( $nav_items as $nav_item ) {
+				$all_nav_slugs[] = $nav_item->slug;
+			}
+		}
+	}
+
+	// Get the checked (visible) items from form submission
+	$visible_items = isset( $_POST['group-nav-item'] ) ? array_map( 'sanitize_text_field', $_POST['group-nav-item'] ) : array();
+
+	// Calculate hidden items (all items minus visible items)
+	$hidden_tabs = array_diff( $all_nav_slugs, $visible_items );
+
+	// Save hidden tabs to group meta
+	groups_update_groupmeta( $group_id, 'group_hidden_tabs', array_values( $hidden_tabs ) );
+
+	// Save landing page setting
+	if ( isset( $_POST['group-landing-page'] ) ) {
+		$landing_page = sanitize_text_field( $_POST['group-landing-page'] );
+		groups_update_groupmeta( $group_id, 'group_landing_page', $landing_page );
+	}
+}
+add_action( 'groups_group_settings_edited', 'hcommons_save_group_nav_settings' );
+
+/**
+ * Hide navigation items from non-admin group members
+ *
+ * Filters the group navigation to remove items that the group admin
+ * has chosen to hide from regular members. Admins and mods can still
+ * see all items.
+ */
+function hcommons_filter_group_nav_items() {
+	if ( ! bp_is_group() ) {
+		return;
+	}
+
+	$group_id = bp_get_current_group_id();
+	$group_slug = bp_get_current_group_slug();
+
+	// Admins and mods can see everything
+	if ( bp_is_item_admin() || bp_is_item_mod() ) {
+		return;
+	}
+
+	$hidden_tabs = groups_get_groupmeta( $group_id, 'group_hidden_tabs', true );
+
+	if ( empty( $hidden_tabs ) || ! is_array( $hidden_tabs ) ) {
+		return;
+	}
+
+	$group_nav = buddypress()->groups->nav;
+
+	if ( empty( $group_nav ) || ! method_exists( $group_nav, 'delete_nav' ) ) {
+		return;
+	}
+
+	foreach ( $hidden_tabs as $slug ) {
+		$group_nav->delete_nav( $slug, $group_slug );
+	}
+}
+add_action( 'bp_actions', 'hcommons_filter_group_nav_items', 5 );
+
+/**
+ * Redirect to group landing page when visiting group home
+ *
+ * When a group admin has set a custom landing page, redirect members
+ * to that page instead of the default home/activity page.
+ */
+function hcommons_group_landing_page_redirect() {
+	if ( ! bp_is_group() || ! bp_is_single_item() ) {
+		return;
+	}
+
+	$group_id = bp_get_current_group_id();
+	$landing_page = groups_get_groupmeta( $group_id, 'group_landing_page', true );
+
+	// Only redirect if a landing page is set and we're on the group home
+	if ( empty( $landing_page ) ) {
+		return;
+	}
+
+	// Get current action (the nav item slug we're viewing)
+	$current_action = bp_current_action();
+
+	// Only redirect from home/empty action to the landing page
+	// Don't redirect if we're already on another page or the landing page itself
+	if ( ! empty( $current_action ) && 'home' !== $current_action ) {
+		return;
+	}
+
+	// Don't redirect admins/mods if landing page is hidden
+	$hidden_tabs = groups_get_groupmeta( $group_id, 'group_hidden_tabs', true );
+	if ( ! bp_is_item_admin() && ! bp_is_item_mod() ) {
+		if ( is_array( $hidden_tabs ) && in_array( $landing_page, $hidden_tabs, true ) ) {
+			return; // Landing page is hidden from this user, don't redirect
+		}
+	}
+
+	// Build the redirect URL
+	$group_permalink = bp_get_group_url( groups_get_current_group() );
+	$redirect_url = trailingslashit( $group_permalink ) . $landing_page . '/';
+
+	// Prevent redirect loop
+	$current_url = bp_get_requested_url();
+	if ( trailingslashit( $current_url ) === trailingslashit( $redirect_url ) ) {
+		return;
+	}
+
+	bp_core_redirect( $redirect_url );
+}
+add_action( 'bp_actions', 'hcommons_group_landing_page_redirect', 1 );
+
+/**
+ * Unslash xprofile field values before save to prevent wp_magic_quotes()
+ * backslashes from corrupting HTML attributes through wp_kses.
+ */
+function hcommons_unslash_xprofile_value( $value ) {
+    if ( is_string( $value ) ) {
+        return wp_unslash( $value );
+    }
+    return $value;
+}
+add_filter( 'xprofile_data_value_before_save', 'hcommons_unslash_xprofile_value', 0 );
+
+/**
+ * Strip slashes added by wp_rel_nofollow() during the save pipeline.
+ *
+ * BuddyPress's xprofile_sanitize_data_value_before_save calls wp_rel_nofollow()
+ * which calls wp_slash() — designed for WP core's slashed-data pipeline.
+ * BuddyPress uses $wpdb->prepare('%s') which handles its own escaping,
+ * so wp_slash's backslashes become literal \" stored in the DB.
+ */
+add_filter( 'xprofile_filtered_data_value_before_save', 'wp_unslash', 1 );
+
+/**
+ * Allow target attribute on <a> tags in xprofile fields.
+ */
+function hcommons_xprofile_allowed_tags( $allowed_tags ) {
+    if ( isset( $allowed_tags['a'] ) ) {
+        $allowed_tags['a']['target'] = true;
+    }
+    return $allowed_tags;
+}
+add_filter( 'xprofile_allowed_tags', 'hcommons_xprofile_allowed_tags' );
+
+/**
+ * Remove redundant second wp_kses pass on xprofile edit display.
+ * bp_xprofile_escape_field_data runs xprofile_filter_kses again at priority 10,
+ * after it was already applied at priority 1 by xprofile_sanitize_data_value_before_display.
+ */
+function hcommons_fix_xprofile_filter_chain() {
+    add_filter( 'xprofile_filtered_data_value_before_save', 'wp_unslash', 5 );
+    remove_filter( 'bp_get_the_profile_field_edit_value', 'bp_xprofile_escape_field_data', 10 );
+    remove_filter( 'bp_get_the_profile_field_value', 'wptexturize' );
+}
+add_action( 'bp_init', 'hcommons_fix_xprofile_filter_chain' );
+
+/**
+ * Clean already-corrupted xprofile HTML on load (doubled quotes, duplicate rel values,
+ * backslash-quotes from wp_rel_nofollow's wp_slash).
+ * Once data is re-saved through the fixed pipeline, this becomes a no-op.
+ */
+function hcommons_fix_corrupted_xprofile_html( $value ) {
+    if ( empty( $value ) || strpos( $value, '<' ) === false ) {
+        return $value;
+    }
+
+    // Step 1: Normalize curly/smart quotes inside HTML tags only.
+    $value = preg_replace_callback( '/<[^>]+>/', function ( $m ) {
+        return str_replace(
+            array( "\xE2\x80\x9C", "\xE2\x80\x9D", "\xE2\x80\x98", "\xE2\x80\x99" ),
+            array( '"', '"', "'", "'" ),
+            $m[0]
+        );
+    }, $value );
+
+    // Step 2: Strip backslash-quotes left by wp_rel_nofollow's wp_slash().
+    if ( strpos( $value, '\"' ) !== false ) {
+        $value = wp_unslash( $value );
+    }
+
+    // Step 3: Reconstruct <a> tags with proper attribute quoting.
+    $value = preg_replace_callback( '/<a\s([^>]*)>/i', function ( $m ) {
+        $attrs_str = $m[1];
+        do {
+            $prev      = $attrs_str;
+            $attrs_str = str_replace( '""', '"', $attrs_str );
+        } while ( $prev !== $attrs_str );
+
+        $atts = wp_kses_hair( $attrs_str, wp_allowed_protocols() );
+
+        if ( empty( $atts ) ) {
+            return $m[0];
+        }
+
+        $rel_parts = array();
+        $html      = '';
+        foreach ( $atts as $name => $att ) {
+            if ( 'rel' === $name ) {
+                $rel_parts = array_merge( $rel_parts, array_map( 'trim', explode( ' ', $att['value'] ) ) );
+                continue;
+            }
+            if ( isset( $att['vless'] ) && 'y' === $att['vless'] ) {
+                $html .= $name . ' ';
+            } else {
+                $val = $att['value'];
+                if ( 'href' === $name && substr( $val, 0, 2 ) === '//' ) {
+                    $val = 'https:' . $val;
+                }
+                $html .= $name . '="' . esc_attr( $val ) . '" ';
+            }
+        }
+
+        $rel_parts = array_unique( array_filter( $rel_parts ) );
+        if ( ! empty( $rel_parts ) ) {
+            $html .= 'rel="' . esc_attr( implode( ' ', $rel_parts ) ) . '" ';
+        }
+
+        return '<a ' . trim( $html ) . '>';
+    }, $value );
+
+    return $value;
+}
+add_filter( 'bp_get_the_profile_field_edit_value', 'hcommons_fix_corrupted_xprofile_html', 0 );
+add_filter( 'bp_get_the_profile_field_value', 'hcommons_fix_corrupted_xprofile_html', 0 );
+
+/**
+ * Prevent wptexturize from converting straight quotes to curly quotes
+ * in content that passes through the_content filter, which can corrupt
+ * HTML attribute quotes during TinyMCE round-trips.
+ */
+add_filter( 'run_wptexturize', '__return_false' );
+
+/**
+ * Fix TinyMCE Visual/Code round-trip doubling attribute quotes.
+ *
+ * Uses wp_footer to inject JS that hooks into TinyMCE globally,
+ * which is more robust than the teeny_mce_before_init setup parameter
+ * that can be overwritten by other plugins.
+ */
+function hcommons_tinymce_quote_fix_script() {
+    if ( ! did_action( 'bp_init' ) ) {
+        return;
+    }
+    ?>
+    <script>
+    (function() {
+        if ( typeof tinymce === 'undefined' ) return;
+        tinymce.on('AddEditor', function(e) {
+            var editor = e.editor;
+            // Fix doubled quotes when TinyMCE serializes content back to textarea.
+            editor.on('SaveContent', function(ev) {
+                // Collapse any doubled straight quotes in HTML tags.
+                ev.content = ev.content.replace(/<[a-z][^>]*>/gi, function(tag) {
+                    return tag.replace(/""+/g, '"');
+                });
+            });
+            // Fix curly quotes that may appear in content loaded into the editor.
+            editor.on('BeforeSetContent', function(ev) {
+                if ( ! ev.content ) return;
+                // Straighten curly quotes inside HTML tags only.
+                ev.content = ev.content.replace(/<[a-z][^>]*>/gi, function(tag) {
+                    return tag.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
+                });
+            });
+        });
+    })();
+    </script>
+    <?php
+}
+add_action( 'wp_footer', 'hcommons_tinymce_quote_fix_script', 99 );
+
+/**
+ * Output Schema.org Person JSON-LD markup on BuddyPress member profiles.
+ */
+function hcommons_bp_member_schema_markup() {
+	if ( ! function_exists( 'bp_is_user' ) || ! bp_is_user() ) {
+		return;
+	}
+
+	$user_id = bp_displayed_user_id();
+	$name    = bp_get_displayed_user_fullname();
+	$url     = bp_displayed_user_domain();
+
+	$schema = array(
+		'@context' => 'https://schema.org',
+		'@type'    => 'Person',
+		'name'     => $name,
+		'url'      => $url,
+	);
+
+	// Avatar
+	$avatar_url = bp_core_fetch_avatar( array(
+		'item_id' => $user_id,
+		'type'    => 'full',
+		'html'    => false,
+	) );
+	if ( ! empty( $avatar_url ) ) {
+		$schema['image'] = $avatar_url;
+	}
+
+	// xprofile fields
+	if ( function_exists( 'xprofile_get_field_data' ) ) {
+		$title       = xprofile_get_field_data( 'Title', $user_id );
+		$affiliation = xprofile_get_field_data( 'Institutional or Other Affiliation', $user_id );
+		$mastodon    = xprofile_get_field_data( 'Mastodon handle', $user_id );
+		$orcid       = xprofile_get_field_data( '<em>ORCID</em> iD', $user_id );
+		$website     = xprofile_get_field_data( 'Website', $user_id );
+
+		if ( ! empty( $title ) ) {
+			$schema['jobTitle'] = $title;
+		}
+		if ( ! empty( $affiliation ) ) {
+			$schema['affiliation'] = array(
+				'@type' => 'Organization',
+				'name'  => $affiliation,
+			);
+		}
+
+		$same_as = array();
+		if ( ! empty( $mastodon ) ) {
+			$mastodon_clean = ltrim( $mastodon, '@' );
+			if ( strpos( $mastodon_clean, '@' ) !== false ) {
+				$parts     = explode( '@', $mastodon_clean );
+				$same_as[] = 'https://' . $parts[1] . '/@' . $parts[0] . '/';
+			}
+		}
+		if ( ! empty( $orcid ) ) {
+			$orcid_id  = preg_replace( '/^https?:\/\/orcid\.org\//', '', $orcid );
+			$same_as[] = 'https://orcid.org/' . $orcid_id;
+		}
+		if ( ! empty( $website ) ) {
+			$same_as[] = $website;
+		}
+		if ( ! empty( $same_as ) ) {
+			$schema['sameAs'] = $same_as;
+		}
+	}
+
+	echo '<script type="application/ld+json">' . wp_json_encode( $schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) . '</script>' . "\n";
+}
+add_action( 'wp_head', 'hcommons_bp_member_schema_markup' );
+
+/**
+ * Output meta description tag on BuddyPress member profiles.
+ */
+function hcommons_bp_member_meta_description() {
+	if ( ! function_exists( 'bp_is_user' ) || ! bp_is_user() ) {
+		return;
+	}
+
+	$name  = bp_get_displayed_user_fullname();
+	$parts = array( $name );
+
+	if ( function_exists( 'xprofile_get_field_data' ) ) {
+		$title       = xprofile_get_field_data( 'Title', bp_displayed_user_id() );
+		$affiliation = xprofile_get_field_data( 'Institutional or Other Affiliation', bp_displayed_user_id() );
+
+		if ( ! empty( $title ) && ! empty( $affiliation ) ) {
+			$parts[] = $title . ' at ' . $affiliation;
+		} elseif ( ! empty( $title ) ) {
+			$parts[] = $title;
+		} elseif ( ! empty( $affiliation ) ) {
+			$parts[] = $affiliation;
+		}
+	}
+
+	$parts[]     = 'Member of Knowledge Commons.';
+	$description = implode( ' — ', array_slice( $parts, 0, -1 ) ) . '. ' . end( $parts );
+
+	echo '<meta name="description" content="' . esc_attr( $description ) . '">' . "\n";
+}
+add_action( 'wp_head', 'hcommons_bp_member_meta_description' );
+
+/**
+ * Output Open Graph tags on BuddyPress member profiles if Jetpack isn't handling them.
+ */
+function hcommons_bp_member_og_tags() {
+	if ( ! function_exists( 'bp_is_user' ) || ! bp_is_user() ) {
+		return;
+	}
+
+	if ( has_action( 'wp_head', 'jetpack_og_tags' ) ) {
+		return;
+	}
+
+	$user_id = bp_displayed_user_id();
+	$name    = bp_get_displayed_user_fullname();
+	$url     = bp_displayed_user_domain();
+
+	// Build description
+	$desc_parts = array( $name );
+	if ( function_exists( 'xprofile_get_field_data' ) ) {
+		$title       = xprofile_get_field_data( 'Title', $user_id );
+		$affiliation = xprofile_get_field_data( 'Institutional or Other Affiliation', $user_id );
+		if ( ! empty( $title ) ) {
+			$desc_parts[] = $title;
+		}
+		if ( ! empty( $affiliation ) ) {
+			$desc_parts[] = $affiliation;
+		}
+	}
+	$description = implode( ' — ', $desc_parts );
+
+	$avatar_url = bp_core_fetch_avatar( array(
+		'item_id' => $user_id,
+		'type'    => 'full',
+		'html'    => false,
+	) );
+
+	echo '<meta property="og:title" content="' . esc_attr( $name ) . '">' . "\n";
+	echo '<meta property="og:description" content="' . esc_attr( $description ) . '">' . "\n";
+	echo '<meta property="og:type" content="profile">' . "\n";
+	echo '<meta property="og:url" content="' . esc_url( $url ) . '">' . "\n";
+	if ( ! empty( $avatar_url ) ) {
+		echo '<meta property="og:image" content="' . esc_url( $avatar_url ) . '">' . "\n";
+	}
+	echo '<meta property="profile:username" content="' . esc_attr( bp_get_displayed_user_username() ) . '">' . "\n";
+}
+add_action( 'wp_head', 'hcommons_bp_member_og_tags' );
+
+/**
+ * Output noindex/nofollow on private BuddyPress member pages.
+ */
+function hcommons_bp_private_pages_noindex() {
+	if ( ! function_exists( 'bp_is_user' ) || ! bp_is_user() ) {
+		return;
+	}
+
+	$private_components = array( 'messages', 'notifications', 'settings' );
+	$private_actions    = array( 'edit', 'change-avatar' );
+
+	$component = bp_current_component();
+	$action    = bp_current_action();
+
+	if ( in_array( $component, $private_components, true ) || in_array( $action, $private_actions, true ) ) {
+		echo '<meta name="robots" content="noindex, nofollow">' . "\n";
+	}
+}
+add_action( 'wp_head', 'hcommons_bp_private_pages_noindex' );
+
